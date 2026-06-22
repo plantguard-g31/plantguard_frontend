@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'app_colors.dart';
 import 'api_service.dart';
 import 'profile_screen.dart';
+import 'scan_screen.dart';
 
 class FarmerDashboardScreen extends StatefulWidget {
   const FarmerDashboardScreen({super.key});
@@ -12,6 +13,7 @@ class FarmerDashboardScreen extends StatefulWidget {
 
 class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
   String userName = "Loading...";
+  String? profilePhotoUrl;
 
   @override
   void initState() {
@@ -27,7 +29,8 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
 
       setState(() {
         userName = user['name'] ?? 'User';
-      });
+        profilePhotoUrl = user['profile_photo_url'];
+              });
     } catch (e) {
       if (!mounted) return;
 
@@ -88,21 +91,34 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  IconButton(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const ProfileScreen(),
-                        ),
-                      );
-                    },
-                    icon: const Icon(
-                      Icons.account_circle_outlined,
-                      color: Colors.white,
-                      size: 36,
-                    ),
-                  ),
+                  GestureDetector(
+  onTap: () {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const ProfileScreen(),
+      ),
+    );
+  },
+  child: CircleAvatar(
+    radius: 18,
+    backgroundColor: AppColors.green,
+
+    backgroundImage: profilePhotoUrl != null &&
+            profilePhotoUrl!.isNotEmpty
+        ? NetworkImage(profilePhotoUrl!)
+        : null,
+
+    child: profilePhotoUrl == null ||
+            profilePhotoUrl!.isEmpty
+        ? const Icon(
+            Icons.person,
+            color: Colors.white,
+            size: 22,
+          )
+        : null,
+  ),
+),
                 ],
               ),
 
@@ -178,7 +194,15 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
                 width: double.infinity,
                 height: 58,
                 child: ElevatedButton.icon(
-                  onPressed: () {},
+                  onPressed: () {
+                      Navigator.push(
+    
+                 context,
+                  MaterialPageRoute(
+                    builder: (context) => const ScanScreen(),
+                     ),
+                   );
+                  },
                   icon: const Icon(Icons.qr_code_scanner, color: Colors.black),
                   label: const Text(
                     "DIAGNOSE YOUR PLANT",

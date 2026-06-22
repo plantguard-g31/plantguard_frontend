@@ -3,6 +3,8 @@ import 'app_colors.dart';
 import 'api_service.dart';
 import 'login_screen.dart';
 import 'farmer_dashboard.dart';
+import 'dart:io';
+import 'package:image_picker/image_picker.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -14,6 +16,9 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   String userName = "Loading...";
   String userRole = "Farmer";
+  File? selectedImage;
+  String? profilePhotoUrl;
+  final ImagePicker picker = ImagePicker();
 
   @override
   void initState() {
@@ -30,6 +35,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       setState(() {
         userName = user['name'] ?? 'User';
         userRole = user['role'] ?? 'Farmer';
+        profilePhotoUrl = user['profile_photo_url'];
       });
     } catch (e) {
       if (!mounted) return;
@@ -40,6 +46,65 @@ class _ProfileScreenState extends State<ProfileScreen> {
       });
     }
   }
+
+  Future<void> pickAndUploadImage(ImageSource source) async {
+    final XFile? image = await picker.pickImage(
+      source: source,
+      imageQuality: 80,
+    );
+
+    if (image == null) return;
+
+    setState(() {
+      selectedImage = File(image.path);
+    });
+
+    await ApiService.uploadProfilePhoto(image.path);
+
+    await loadUserProfile();
+  }
+  void showImageOptions() {
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: AppColors.cardBg,
+    builder: (context) {
+      return SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(
+                Icons.camera_alt,
+                color: AppColors.green,
+              ),
+              title: const Text(
+                "Camera",
+                style: TextStyle(color: Colors.white),
+              ),
+              onTap: () {
+                Navigator.pop(context);
+                pickAndUploadImage(ImageSource.camera);
+              },
+            ),
+            ListTile(
+              leading: const Icon(
+                Icons.photo_library,
+                color: AppColors.green,
+              ),
+              title: const Text(
+                "Gallery",
+                style: TextStyle(color: Colors.white),
+              ),
+              onTap: () {
+                Navigator.pop(context);
+                pickAndUploadImage(ImageSource.gallery);
+              },
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
 
   Future<void> logoutUser() async {
     await ApiService.logout();
@@ -112,11 +177,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
               const SizedBox(height: 35),
 
-              const CircleAvatar(
-                radius: 48,
-                backgroundColor: AppColors.green,
-                child: Icon(Icons.person, color: Colors.white, size: 58),
-              ),
+             GestureDetector(
+  onTap: showImageOptions,
+  child: CircleAvatar(
+    radius: 48,
+    backgroundColor: AppColors.green,
+
+    backgroundImage: selectedImage != null
+        ? FileImage(selectedImage!)
+        : profilePhotoUrl != null && profilePhotoUrl!.isNotEmpty
+            ? NetworkImage(profilePhotoUrl!)
+            : null,
+
+    child: selectedImage == null &&
+            (profilePhotoUrl == null || profilePhotoUrl!.isEmpty)
+        ? const Icon(
+            Icons.person,
+            color: Colors.white,
+            size: 58,
+          )
+        : null,
+  ),
+),
 
               const SizedBox(height: 16),
 

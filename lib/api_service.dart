@@ -90,17 +90,46 @@ class ApiService {
   }
 
   // ------- AUTH HEADERS -------
-  static Future<Map<String, String>> authHeaders() async {
-    final token = await getToken();
+  // ------- AUTH HEADERS -------
+static Future<Map<String, String>> authHeaders() async {
+  final token = await getToken();
 
-    return {
-      'Content-Type': 'application/json',
-      if (token != null) 'Authorization': 'Bearer $token',
-    };
-  }
+  return {
+    'Content-Type': 'application/json',
+    if (token != null) 'Authorization': 'Bearer $token',
+  };
+}
+// ------- UPLOAD PROFILE PHOTO -------
+static Future<String?> uploadProfilePhoto(String imagePath) async {
+  final token = await getToken();
 
-  // ------- LOGOUT -------
-  static Future<void> logout() async {
-    await _storage.delete(key: 'access_token');
+  final request = http.MultipartRequest(
+    'POST',
+    Uri.parse('$baseUrl/user/upload-photo'),
+  );
+
+  request.headers['Authorization'] = 'Bearer $token';
+
+  request.files.add(
+    await http.MultipartFile.fromPath(
+      'file',
+      imagePath,
+    ),
+  );
+
+  final response = await request.send();
+  final responseBody = await response.stream.bytesToString();
+
+  if (response.statusCode == 200) {
+    final data = jsonDecode(responseBody);
+    return data['profile_photo_url'];
+  } else {
+    throw Exception('Failed to upload profile photo');
   }
+}
+
+// ------- LOGOUT -------
+static Future<void> logout() async {
+  await _storage.delete(key: 'access_token');
+}
 }

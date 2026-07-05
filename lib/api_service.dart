@@ -1,11 +1,11 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'user_cache.dart';
 
 class ApiService {
-  static const String baseUrl = 'https://jeshik.dpdns.org/api/v1';
+  static const String baseUrl = 'http://192.168.1.99:8000/api/v1';
 
-  // Secure storage for JWT token
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
 
   // ------- REGISTER -------
@@ -51,13 +51,11 @@ class ApiService {
     if (res.statusCode == 200) {
       final data = jsonDecode(res.body);
 
-      // Save JWT access token securely
       await _storage.write(
         key: 'access_token',
         value: data['access_token'],
       );
 
-      // Optional test print
       print('JWT token saved successfully');
     } else {
       final body = jsonDecode(res.body);
@@ -71,65 +69,82 @@ class ApiService {
   }
 
   // ------- GET CURRENT USER PROFILE -------
-  static Future<Map<String, dynamic>> getCurrentUser() async {
-    final token = await getToken();
+// ------- GET CURRENT USER PROFILE -------
+static Future<Map<String, dynamic>> getCurrentUser() async {
+  final token = await getToken();
 
-    final res = await http.get(
-      Uri.parse('$baseUrl/auth/me'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
+  print("TOKEN: $token");
+
+  final res = await http.get(
+    Uri.parse('$baseUrl/user/me'),
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer $token',
+    },
+  );
+
+  print("PROFILE STATUS: ${res.statusCode}");
+  print("PROFILE RESPONSE: ${res.body}");
+
+  if (res.statusCode == 200) {
+    final data = jsonDecode(res.body);
+
+    print("USER DATA: $data");
+
+    await UserCache.saveUser(
+      name: data['name'] ?? '',
+      photoUrl: data['profile_picture_url'] ?? '',
     );
 
-    if (res.statusCode == 200) {
-      return jsonDecode(res.body);
+    return data;
+  } else {
+    throw Exception('Failed to load user profile');
+  }
+}
+
+  // ------- AUTH HEADERS -------
+  static Future<Map<String, String>> authHeaders() async {
+    final token = await getToken();
+
+    return {
+      'Content-Type': 'application/json',
+      if (token != null) 'Authorization': 'Bearer $token',
+    };
+  }
+
+  // ------- UPLOAD PROFILE PHOTO -------
+  static Future<String?> uploadProfilePhoto(String imagePath) async {
+    final token = await getToken();
+
+    final request = http.MultipartRequest(
+      'POST',
+      Uri.parse('$baseUrl/user/upload-photo'),
+    );
+
+    request.headers['Authorization'] = 'Bearer $token';
+
+    request.files.add(
+      await http.MultipartFile.fromPath(
+        'file',
+        imagePath,
+      ),
+    );
+
+    final response = await request.send();
+    final responseBody = await response.stream.bytesToString();
+print("UPLOAD STATUS: ${response.statusCode}");
+print("UPLOAD RESPONSE: $responseBody");
+    if (response.statusCode == 200) {
+      final data = jsonDecode(responseBody);
+      return data['profile_picture_url'];
     } else {
-      throw Exception('Failed to load user profile');
+      throw Exception('Failed to upload profile photo');
     }
   }
 
-  // ------- AUTH HEADERS -------
-  // ------- AUTH HEADERS -------
-static Future<Map<String, String>> authHeaders() async {
-  final token = await getToken();
-
-  return {
-    'Content-Type': 'application/json',
-    if (token != null) 'Authorization': 'Bearer $token',
-  };
-}
-// ------- UPLOAD PROFILE PHOTO -------
-static Future<String?> uploadProfilePhoto(String imagePath) async {
-  final token = await getToken();
-
-  final request = http.MultipartRequest(
-    'POST',
-    Uri.parse('$baseUrl/user/upload-photo'),
-  );
-
-  request.headers['Authorization'] = 'Bearer $token';
-
-  request.files.add(
-    await http.MultipartFile.fromPath(
-      'file',
-      imagePath,
-    ),
-  );
-
-  final response = await request.send();
-  final responseBody = await response.stream.bytesToString();
-
-  if (response.statusCode == 200) {
-    final data = jsonDecode(responseBody);
-    return data['profile_photo_url'];
-  } else {
-    throw Exception('Failed to upload profile photo');
+  // ------- LOGOUT -------
+  static Future<void> logout() async {
+    await _storage.delete(key: 'access_token');
+    await UserCache.clear();
   }
-}
-
-// ------- LOGOUT -------
-static Future<void> logout() async {
-  await _storage.delete(key: 'access_token');
-}
 }

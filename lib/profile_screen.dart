@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'app_colors.dart';
 import 'api_service.dart';
@@ -5,7 +6,9 @@ import 'login_screen.dart';
 import 'farmer_dashboard.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
-
+import 'user_cache.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'scan_screen.dart';
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
@@ -23,19 +26,39 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void initState() {
     super.initState();
+
+    // 1. show cached data instantly
+    loadCachedUser();
+
+    // 2. then refresh from API
     loadUserProfile();
   }
 
+  // ---------------- CACHE LOAD ----------------
+  Future<void> loadCachedUser() async {
+    final cached = await UserCache.getUser();
+
+    if (!mounted) return;
+
+    setState(() {
+      userName = cached['name'] ?? 'User';
+      profilePhotoUrl = cached['profile_picture_url'];
+    });
+  }
+
+  // ---------------- API LOAD ----------------
   Future<void> loadUserProfile() async {
     try {
       final user = await ApiService.getCurrentUser();
+print("USER DATA: $user");
+print("PHOTO URL: ${user['profile_picture_url']}");
 
       if (!mounted) return;
 
       setState(() {
         userName = user['name'] ?? 'User';
         userRole = user['role'] ?? 'Farmer';
-        profilePhotoUrl = user['profile_photo_url'];
+        profilePhotoUrl = user['profile_picture_url'];
       });
     } catch (e) {
       if (!mounted) return;
@@ -47,6 +70,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  // ---------------- IMAGE PICK ----------------
   Future<void> pickAndUploadImage(ImageSource source) async {
     final XFile? image = await picker.pickImage(
       source: source,
@@ -59,53 +83,56 @@ class _ProfileScreenState extends State<ProfileScreen> {
       selectedImage = File(image.path);
     });
 
-    await ApiService.uploadProfilePhoto(image.path);
+    final photoUrl =
+        await ApiService.uploadProfilePhoto(image.path);
+
+    if (photoUrl != null) {
+      await UserCache.saveUser(
+        name: userName,
+        photoUrl: photoUrl,
+      );
+    }
 
     await loadUserProfile();
   }
-  void showImageOptions() {
-  showModalBottomSheet(
-    context: context,
-    backgroundColor: AppColors.cardBg,
-    builder: (context) {
-      return SafeArea(
-        child: Wrap(
-          children: [
-            ListTile(
-              leading: const Icon(
-                Icons.camera_alt,
-                color: AppColors.green,
-              ),
-              title: const Text(
-                "Camera",
-                style: TextStyle(color: Colors.white),
-              ),
-              onTap: () {
-                Navigator.pop(context);
-                pickAndUploadImage(ImageSource.camera);
-              },
-            ),
-            ListTile(
-              leading: const Icon(
-                Icons.photo_library,
-                color: AppColors.green,
-              ),
-              title: const Text(
-                "Gallery",
-                style: TextStyle(color: Colors.white),
-              ),
-              onTap: () {
-                Navigator.pop(context);
-                pickAndUploadImage(ImageSource.gallery);
-              },
-            ),
-          ],
-        ),
-      );
-    },
-  );
-}
 
+  // ---------------- IMAGE OPTIONS ----------------
+  void showImageOptions() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.cardBg,
+      builder: (context) {
+        return SafeArea(
+          child: Wrap(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.camera_alt,
+                    color: AppColors.green),
+                title: const Text("Camera",
+                    style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(context);
+                  pickAndUploadImage(ImageSource.camera);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library,
+                    color: AppColors.green),
+                title: const Text("Gallery",
+                    style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(context);
+                  pickAndUploadImage(ImageSource.gallery);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // ---------------- LOGOUT ----------------
   Future<void> logoutUser() async {
     await ApiService.logout();
 
@@ -118,15 +145,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  // ---------------- NAVIGATION ----------------
   void handleBottomNavigation(int index) {
-    if (index == 0) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const FarmerDashboardScreen()),
-      );
-    }
+  if (index == 0) {
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const FarmerDashboardScreen(),
+      ),
+    );
   }
 
+  if (index == 1) {
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const ScanScreen(),
+      ),
+    );
+  }
+
+  if (index == 3) {
+    return; // Already on Profile
+  }
+}
+
+  // ---------------- UI ----------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -140,15 +184,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
         onTap: handleBottomNavigation,
         items: const [
           BottomNavigationBarItem(
-            icon: Icon(Icons.home_outlined),
-            label: "Home",
-          ),
+              icon: Icon(Icons.home_outlined), label: "Home"),
           BottomNavigationBarItem(
-            icon: Icon(Icons.qr_code_scanner),
-            label: "Scan",
-          ),
-          BottomNavigationBarItem(icon: Icon(Icons.history), label: "History"),
-          BottomNavigationBarItem(icon: Icon(Icons.person), label: "Profile"),
+              icon: Icon(Icons.qr_code_scanner), label: "Scan"),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.history), label: "History"),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.person), label: "Profile"),
         ],
       ),
       body: SafeArea(
@@ -156,49 +198,64 @@ class _ProfileScreenState extends State<ProfileScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Column(
             children: [
+              const SizedBox(height: 10),
+
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: const [
-                  Text(
-                    "PlantGuard",
-                    style: TextStyle(
-                      color: AppColors.green,
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Icon(
-                    Icons.account_circle_outlined,
-                    color: Colors.white,
-                    size: 36,
-                  ),
-                ],
-              ),
+  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  children: [
+    const Text(
+      "PlantGuard",
+      style: TextStyle(
+        color: AppColors.green,
+        fontSize: 24,
+        fontWeight: FontWeight.bold,
+      ),
+    ),
+
+    CircleAvatar(
+      radius: 18,
+      backgroundColor: AppColors.green,
+      backgroundImage:
+          profilePhotoUrl != null &&
+                  profilePhotoUrl!.isNotEmpty
+              ? CachedNetworkImageProvider(
+                  profilePhotoUrl!,
+                )
+              : null,
+      child: profilePhotoUrl == null ||
+              profilePhotoUrl!.isEmpty
+          ? const Icon(
+              Icons.person,
+              color: Colors.white,
+            )
+          : null,
+    ),
+  ],
+),
 
               const SizedBox(height: 35),
 
-             GestureDetector(
-  onTap: showImageOptions,
-  child: CircleAvatar(
-    radius: 48,
-    backgroundColor: AppColors.green,
-
-    backgroundImage: selectedImage != null
-        ? FileImage(selectedImage!)
-        : profilePhotoUrl != null && profilePhotoUrl!.isNotEmpty
-            ? NetworkImage(profilePhotoUrl!)
-            : null,
-
-    child: selectedImage == null &&
-            (profilePhotoUrl == null || profilePhotoUrl!.isEmpty)
-        ? const Icon(
-            Icons.person,
-            color: Colors.white,
-            size: 58,
-          )
-        : null,
-  ),
-),
+              GestureDetector(
+                onTap: showImageOptions,
+                child: CircleAvatar(
+                  radius: 48,
+                  backgroundColor: AppColors.green,
+                  backgroundImage: selectedImage != null
+                      ? FileImage(selectedImage!)
+                      : (profilePhotoUrl != null &&
+                              profilePhotoUrl!.isNotEmpty)
+                          ? CachedNetworkImageProvider(
+                              profilePhotoUrl!,
+                            )
+                          : null,
+                  child: selectedImage == null &&
+                          (profilePhotoUrl == null ||
+                              profilePhotoUrl!.isEmpty)
+                      ? const Icon(Icons.person,
+                          color: Colors.white, size: 58)
+                      : null,
+                ),
+              ),
 
               const SizedBox(height: 16),
 
@@ -276,11 +333,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 onTap: logoutUser,
                 child: Container(
                   height: 58,
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14),
                   decoration: BoxDecoration(
                     color: AppColors.cardBg,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppColors.borderColor),
+                    border: Border.all(
+                        color: AppColors.borderColor),
                   ),
                   child: const Row(
                     children: [
@@ -333,9 +392,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
           if (trailing != null)
-            Text(trailing, style: const TextStyle(color: AppColors.green)),
+            Text(trailing,
+                style: const TextStyle(
+                    color: AppColors.green)),
           const SizedBox(width: 8),
-          const Icon(Icons.chevron_right, color: AppColors.labelColor),
+          const Icon(Icons.chevron_right,
+              color: AppColors.labelColor),
         ],
       ),
     );

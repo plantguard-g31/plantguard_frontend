@@ -1,53 +1,93 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'app_colors.dart';
 import 'api_service.dart';
 import 'profile_screen.dart';
 import 'scan_screen.dart';
+import 'user_cache.dart';
 
 class FarmerDashboardScreen extends StatefulWidget {
   const FarmerDashboardScreen({super.key});
 
   @override
-  State<FarmerDashboardScreen> createState() => _FarmerDashboardScreenState();
+  State<FarmerDashboardScreen> createState() =>
+      _FarmerDashboardScreenState();
 }
 
 class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
   String userName = "Loading...";
   String? profilePhotoUrl;
+  String userRole = "Loading...";
 
   @override
   void initState() {
     super.initState();
-    loadUserName();
+
+    // Load cached data instantly
+    loadCachedUser();
+
+    // Refresh from API
+    loadUserProfile();
   }
 
-  Future<void> loadUserName() async {
-    try {
-      final user = await ApiService.getCurrentUser();
+  Future<void> loadCachedUser() async {
+    final cached = await UserCache.getUser();
 
-      if (!mounted) return;
+    if (!mounted) return;
 
-      setState(() {
-        userName = user['name'] ?? 'User';
-        profilePhotoUrl = user['profile_photo_url'];
-              });
-    } catch (e) {
-      if (!mounted) return;
-
-      setState(() {
-        userName = "User";
-      });
-    }
+    setState(() {
+      userName = cached['name'] ?? 'User';
+      profilePhotoUrl = cached['photo_url'];
+    });
   }
+
+  Future<void> loadUserProfile() async {
+  print("STEP 1 - loadUserProfile started");
+
+  try {
+    final user = await ApiService.getCurrentUser();
+
+    print("STEP 2 - API Success");
+    print("USER DATA: $user");
+
+    if (!mounted) return;
+
+    setState(() {
+      userName = user['name'] ?? 'User';
+     
+      profilePhotoUrl = user['profile_picture_url'];
+
+      print("STEP 3 - State Updated");
+      print("PHOTO URL: $profilePhotoUrl");
+    });
+  } catch (e) {
+    print("PROFILE ERROR: $e");
+  }
+}
 
   void _handleBottomNavigation(int index) {
-    if (index == 3) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => const ProfileScreen()),
-      );
-    }
+  if (index == 0) {
+    return;
   }
+
+  if (index == 1) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const ScanScreen(),
+      ),
+    );
+  }
+
+  if (index == 3) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const ProfileScreen(),
+      ),
+    );
+  }
+}
 
   @override
   Widget build(BuildContext context) {
@@ -61,12 +101,18 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
         currentIndex: 0,
         onTap: _handleBottomNavigation,
         items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: "Home"),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.home),
+            label: "Home",
+          ),
           BottomNavigationBarItem(
             icon: Icon(Icons.qr_code_scanner),
             label: "Scan",
           ),
-          BottomNavigationBarItem(icon: Icon(Icons.history), label: "History"),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.history),
+            label: "History",
+          ),
           BottomNavigationBarItem(
             icon: Icon(Icons.person_outline),
             label: "Profile",
@@ -81,7 +127,8 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
             children: [
               /// Header
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                mainAxisAlignment:
+                    MainAxisAlignment.spaceBetween,
                 children: [
                   const Text(
                     "PlantGuard",
@@ -92,33 +139,35 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
                     ),
                   ),
                   GestureDetector(
-  onTap: () {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const ProfileScreen(),
-      ),
-    );
-  },
-  child: CircleAvatar(
-    radius: 18,
-    backgroundColor: AppColors.green,
-
-    backgroundImage: profilePhotoUrl != null &&
-            profilePhotoUrl!.isNotEmpty
-        ? NetworkImage(profilePhotoUrl!)
-        : null,
-
-    child: profilePhotoUrl == null ||
-            profilePhotoUrl!.isEmpty
-        ? const Icon(
-            Icons.person,
-            color: Colors.white,
-            size: 22,
-          )
-        : null,
-  ),
-),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) =>
+                              const ProfileScreen(),
+                        ),
+                      );
+                    },
+                    child: CircleAvatar(
+                      radius: 18,
+                      backgroundColor: AppColors.green,
+                      backgroundImage:
+                          profilePhotoUrl != null &&
+                                  profilePhotoUrl!.isNotEmpty
+                              ? CachedNetworkImageProvider(
+                                  profilePhotoUrl!,
+                                )
+                              : null,
+                      child: profilePhotoUrl == null ||
+                              profilePhotoUrl!.isEmpty
+                          ? const Icon(
+                              Icons.person,
+                              color: Colors.white,
+                              size: 22,
+                            )
+                          : null,
+                    ),
+                  ),
                 ],
               ),
 
@@ -195,15 +244,18 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
                 height: 58,
                 child: ElevatedButton.icon(
                   onPressed: () {
-                      Navigator.push(
-    
-                 context,
-                  MaterialPageRoute(
-                    builder: (context) => const ScanScreen(),
-                     ),
-                   );
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) =>
+                            const ScanScreen(),
+                      ),
+                    );
                   },
-                  icon: const Icon(Icons.qr_code_scanner, color: Colors.black),
+                  icon: const Icon(
+                    Icons.qr_code_scanner,
+                    color: Colors.black,
+                  ),
                   label: const Text(
                     "DIAGNOSE YOUR PLANT",
                     style: TextStyle(
@@ -215,7 +267,8 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.green,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius:
+                          BorderRadius.circular(14),
                     ),
                   ),
                 ),
@@ -239,7 +292,9 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
       decoration: BoxDecoration(
         color: AppColors.cardBg,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.borderColor),
+        border: Border.all(
+          color: AppColors.borderColor,
+        ),
       ),
       child: ListTile(
         leading: Icon(icon, color: iconColor),

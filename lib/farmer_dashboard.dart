@@ -7,6 +7,7 @@ import 'profile_screen.dart';
 import 'scan_screen.dart';
 import 'history_screen.dart';
 import 'treatment_screen.dart';
+import 'guide_screen.dart';
 import 'user_cache.dart';
 
 class FarmerDashboardScreen extends StatefulWidget {
@@ -86,6 +87,15 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
       context,
       MaterialPageRoute(
         builder: (context) => const TreatmentScreen(),
+      ),
+    );
+  }
+
+  void openGuideScreen() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const GuideScreen(),
       ),
     );
   }
@@ -242,13 +252,7 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
                 icon: Icons.menu_book_outlined,
                 title: "Guide",
                 iconColor: Colors.blue,
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Guide screen will be added later.'),
-                    ),
-                  );
-                },
+                onTap: openGuideScreen,
               ),
 
               const SizedBox(height: 12),

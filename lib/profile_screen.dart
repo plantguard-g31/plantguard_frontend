@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'app_colors.dart';
 import 'api_service.dart';
@@ -9,6 +8,8 @@ import 'package:image_picker/image_picker.dart';
 import 'user_cache.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'scan_screen.dart';
+import 'history_screen.dart';
+
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
@@ -42,7 +43,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     setState(() {
       userName = cached['name'] ?? 'User';
-      profilePhotoUrl = cached['profile_picture_url'];
+      profilePhotoUrl = cached['photo_url'];
     });
   }
 
@@ -50,8 +51,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> loadUserProfile() async {
     try {
       final user = await ApiService.getCurrentUser();
-print("USER DATA: $user");
-print("PHOTO URL: ${user['profile_picture_url']}");
+
+      print("USER DATA: $user");
+      print("PHOTO URL: ${user['profile_picture_url']}");
 
       if (!mounted) return;
 
@@ -83,14 +85,10 @@ print("PHOTO URL: ${user['profile_picture_url']}");
       selectedImage = File(image.path);
     });
 
-    final photoUrl =
-        await ApiService.uploadProfilePhoto(image.path);
+    final photoUrl = await ApiService.uploadProfilePhoto(image.path);
 
     if (photoUrl != null) {
-      await UserCache.saveUser(
-        name: userName,
-        photoUrl: photoUrl,
-      );
+      await UserCache.saveUser(name: userName, photoUrl: photoUrl);
     }
 
     await loadUserProfile();
@@ -106,20 +104,25 @@ print("PHOTO URL: ${user['profile_picture_url']}");
           child: Wrap(
             children: [
               ListTile(
-                leading: const Icon(Icons.camera_alt,
-                    color: AppColors.green),
-                title: const Text("Camera",
-                    style: TextStyle(color: Colors.white)),
+                leading: const Icon(Icons.camera_alt, color: AppColors.green),
+                title: const Text(
+                  "Camera",
+                  style: TextStyle(color: Colors.white),
+                ),
                 onTap: () {
                   Navigator.pop(context);
                   pickAndUploadImage(ImageSource.camera);
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.photo_library,
-                    color: AppColors.green),
-                title: const Text("Gallery",
-                    style: TextStyle(color: Colors.white)),
+                leading: const Icon(
+                  Icons.photo_library,
+                  color: AppColors.green,
+                ),
+                title: const Text(
+                  "Gallery",
+                  style: TextStyle(color: Colors.white),
+                ),
                 onTap: () {
                   Navigator.pop(context);
                   pickAndUploadImage(ImageSource.gallery);
@@ -132,11 +135,114 @@ print("PHOTO URL: ${user['profile_picture_url']}");
     );
   }
 
+  // ---------------- LOGOUT CONFIRMATION ----------------
+  Future<bool> showLogoutConfirmation() async {
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: AppColors.cardBg,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Text(
+            'Logout',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+          content: const Text(
+            'Are you sure you want to logout?',
+            style: TextStyle(color: AppColors.labelColor, fontSize: 14),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context, false);
+              },
+              child: const Text(
+                'Cancel',
+                style: TextStyle(color: AppColors.labelColor),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context, true);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              child: const Text(
+                'Logout',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    return result == true;
+  }
+
+  // ---------------- LOGOUT LOADING ----------------
+  void showLogoutLoading() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return Dialog(
+          backgroundColor: AppColors.cardBg,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: const Padding(
+            padding: EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(color: AppColors.green),
+                SizedBox(height: 18),
+                Text(
+                  'Logging out...',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   // ---------------- LOGOUT ----------------
   Future<void> logoutUser() async {
+    final confirmLogout = await showLogoutConfirmation();
+
+    if (!confirmLogout) {
+      return;
+    }
+
+    if (!mounted) return;
+
+    showLogoutLoading();
+
+    await Future.delayed(const Duration(seconds: 2));
+
     await ApiService.logout();
 
     if (!mounted) return;
+
+    Navigator.of(context, rootNavigator: true).pop();
 
     Navigator.pushAndRemoveUntil(
       context,
@@ -145,30 +251,41 @@ print("PHOTO URL: ${user['profile_picture_url']}");
     );
   }
 
+  // ---------------- OPEN HISTORY ----------------
+  void openHistoryScreen() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const HistoryScreen()),
+    );
+  }
+
   // ---------------- NAVIGATION ----------------
   void handleBottomNavigation(int index) {
-  if (index == 0) {
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const FarmerDashboardScreen(),
-      ),
-    );
-  }
+    if (index == 0) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const FarmerDashboardScreen()),
+      );
+      return;
+    }
 
-  if (index == 1) {
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const ScanScreen(),
-      ),
-    );
-  }
+    if (index == 1) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const ScanScreen()),
+      );
+      return;
+    }
 
-  if (index == 3) {
-    return; // Already on Profile
+    if (index == 2) {
+      openHistoryScreen();
+      return;
+    }
+
+    if (index == 3) {
+      return; // Already on Profile
+    }
   }
-}
 
   // ---------------- UI ----------------
   @override
@@ -184,13 +301,15 @@ print("PHOTO URL: ${user['profile_picture_url']}");
         onTap: handleBottomNavigation,
         items: const [
           BottomNavigationBarItem(
-              icon: Icon(Icons.home_outlined), label: "Home"),
+            icon: Icon(Icons.home_outlined),
+            label: "Home",
+          ),
           BottomNavigationBarItem(
-              icon: Icon(Icons.qr_code_scanner), label: "Scan"),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.history), label: "History"),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.person), label: "Profile"),
+            icon: Icon(Icons.qr_code_scanner),
+            label: "Scan",
+          ),
+          BottomNavigationBarItem(icon: Icon(Icons.history), label: "History"),
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: "Profile"),
         ],
       ),
       body: SafeArea(
@@ -201,37 +320,29 @@ print("PHOTO URL: ${user['profile_picture_url']}");
               const SizedBox(height: 10),
 
               Row(
-  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-  children: [
-    const Text(
-      "PlantGuard",
-      style: TextStyle(
-        color: AppColors.green,
-        fontSize: 24,
-        fontWeight: FontWeight.bold,
-      ),
-    ),
-
-    CircleAvatar(
-      radius: 18,
-      backgroundColor: AppColors.green,
-      backgroundImage:
-          profilePhotoUrl != null &&
-                  profilePhotoUrl!.isNotEmpty
-              ? CachedNetworkImageProvider(
-                  profilePhotoUrl!,
-                )
-              : null,
-      child: profilePhotoUrl == null ||
-              profilePhotoUrl!.isEmpty
-          ? const Icon(
-              Icons.person,
-              color: Colors.white,
-            )
-          : null,
-    ),
-  ],
-),
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    "PlantGuard",
+                    style: TextStyle(
+                      color: AppColors.green,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  CircleAvatar(
+                    radius: 18,
+                    backgroundColor: AppColors.green,
+                    backgroundImage:
+                        profilePhotoUrl != null && profilePhotoUrl!.isNotEmpty
+                        ? CachedNetworkImageProvider(profilePhotoUrl!)
+                        : null,
+                    child: profilePhotoUrl == null || profilePhotoUrl!.isEmpty
+                        ? const Icon(Icons.person, color: Colors.white)
+                        : null,
+                  ),
+                ],
+              ),
 
               const SizedBox(height: 35),
 
@@ -242,17 +353,13 @@ print("PHOTO URL: ${user['profile_picture_url']}");
                   backgroundColor: AppColors.green,
                   backgroundImage: selectedImage != null
                       ? FileImage(selectedImage!)
-                      : (profilePhotoUrl != null &&
-                              profilePhotoUrl!.isNotEmpty)
-                          ? CachedNetworkImageProvider(
-                              profilePhotoUrl!,
-                            )
-                          : null,
-                  child: selectedImage == null &&
-                          (profilePhotoUrl == null ||
-                              profilePhotoUrl!.isEmpty)
-                      ? const Icon(Icons.person,
-                          color: Colors.white, size: 58)
+                      : (profilePhotoUrl != null && profilePhotoUrl!.isNotEmpty)
+                      ? CachedNetworkImageProvider(profilePhotoUrl!)
+                      : null,
+                  child:
+                      selectedImage == null &&
+                          (profilePhotoUrl == null || profilePhotoUrl!.isEmpty)
+                      ? const Icon(Icons.person, color: Colors.white, size: 58)
                       : null,
                 ),
               ),
@@ -299,18 +406,29 @@ print("PHOTO URL: ${user['profile_picture_url']}");
                 title: "Notifications",
                 iconColor: AppColors.green,
                 trailing: "On",
+                onTap: () {},
               ),
 
               _profileTile(
                 icon: Icons.lock_outline,
                 title: "Change Password",
                 iconColor: AppColors.labelColor,
+                onTap: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'Change Password screen will be added later.',
+                      ),
+                    ),
+                  );
+                },
               ),
 
               _profileTile(
                 icon: Icons.history,
                 title: "History",
                 iconColor: AppColors.labelColor,
+                onTap: openHistoryScreen,
               ),
 
               const SizedBox(height: 24),
@@ -333,13 +451,11 @@ print("PHOTO URL: ${user['profile_picture_url']}");
                 onTap: logoutUser,
                 child: Container(
                   height: 58,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14),
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
                   decoration: BoxDecoration(
                     color: AppColors.cardBg,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                        color: AppColors.borderColor),
+                    border: Border.all(color: AppColors.borderColor),
                   ),
                   child: const Row(
                     children: [
@@ -367,38 +483,39 @@ print("PHOTO URL: ${user['profile_picture_url']}");
     required IconData icon,
     required String title,
     required Color iconColor,
+    required VoidCallback onTap,
     String? trailing,
   }) {
-    return Container(
-      height: 58,
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      decoration: BoxDecoration(
-        color: AppColors.cardBg,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.borderColor),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: iconColor),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Text(
-              title,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 58,
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        decoration: BoxDecoration(
+          color: AppColors.cardBg,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.borderColor),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: iconColor),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(
+                title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
-          ),
-          if (trailing != null)
-            Text(trailing,
-                style: const TextStyle(
-                    color: AppColors.green)),
-          const SizedBox(width: 8),
-          const Icon(Icons.chevron_right,
-              color: AppColors.labelColor),
-        ],
+            if (trailing != null)
+              Text(trailing, style: const TextStyle(color: AppColors.green)),
+            const SizedBox(width: 8),
+            const Icon(Icons.chevron_right, color: AppColors.labelColor),
+          ],
+        ),
       ),
     );
   }

@@ -33,49 +33,61 @@ class _ScanScreenState extends State<ScanScreen> {
     });
   }
 
-  Future<void> diagnosePlant() async {
-    if (selectedImage == null) {
-      showError('Please select or capture a plant image first.');
-      return;
-    }
-
+  void removeSelectedImage() {
     setState(() {
-      isLoading = true;
+      selectedImage = null;
     });
-
-    try {
-      final result = await ApiService.diagnosePlantImage(
-        imagePath: selectedImage!.path,
-        cropType: 'tomato',
-      );
-
-      if (!mounted) return;
-
-      print('DIAGNOSIS SUCCESS RESULT: $result');
-
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => DiagnosisResultScreen(
-            result: result,
-          ),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-
-      showError(
-        e.toString().replaceFirst('Exception: ', ''),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          isLoading = false;
-        });
-      }
-    }
   }
 
+  Future<void> diagnosePlant() async {
+  if (selectedImage == null) {
+    showError('Please select or capture a plant image first.');
+    return;
+  }
+
+  setState(() {
+    isLoading = true;
+  });
+
+  try {
+    final result = await ApiService.diagnosePlantImage(
+      imagePath: selectedImage!.path,
+      cropType: 'tomato',
+    );
+
+    if (!mounted) return;
+
+    print('DIAGNOSIS SUCCESS RESULT: $result');
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => DiagnosisResultScreen(
+          result: result,
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+
+    // This clears the selected image when user comes back
+    setState(() {
+      selectedImage = null;
+    });
+  } catch (e) {
+    if (!mounted) return;
+
+    showError(
+      e.toString().replaceFirst('Exception: ', ''),
+    );
+  } finally {
+    if (mounted) {
+      setState(() {
+        isLoading = false;
+      });
+    }
+  }
+}
   void showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -133,6 +145,43 @@ class _ScanScreenState extends State<ScanScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget buildSelectedImagePreview() {
+    return Stack(
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Image.file(
+            selectedImage!,
+            width: double.infinity,
+            height: double.infinity,
+            fit: BoxFit.cover,
+          ),
+        ),
+
+        Positioned(
+          top: 10,
+          right: 10,
+          child: GestureDetector(
+            onTap: isLoading ? null : removeSelectedImage,
+            child: Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.70),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.close,
+                color: Colors.white,
+                size: 22,
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -306,14 +355,7 @@ class _ScanScreenState extends State<ScanScreen> {
                               ),
                             ],
                           )
-                        : ClipRRect(
-                            borderRadius: BorderRadius.circular(16),
-                            child: Image.file(
-                              selectedImage!,
-                              width: double.infinity,
-                              fit: BoxFit.cover,
-                            ),
-                          ),
+                        : buildSelectedImagePreview(),
                   ),
                 ),
               ),

@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+
 import 'app_colors.dart';
 import 'api_service.dart';
 import 'profile_screen.dart';
 import 'scan_screen.dart';
+import 'history_screen.dart';
+import 'treatment_screen.dart';
 import 'user_cache.dart';
 
 class FarmerDashboardScreen extends StatefulWidget {
@@ -17,16 +20,12 @@ class FarmerDashboardScreen extends StatefulWidget {
 class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
   String userName = "Loading...";
   String? profilePhotoUrl;
-  String userRole = "Loading...";
 
   @override
   void initState() {
     super.initState();
 
-    // Load cached data instantly
     loadCachedUser();
-
-    // Refresh from API
     loadUserProfile();
   }
 
@@ -42,35 +41,29 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
   }
 
   Future<void> loadUserProfile() async {
-  print("STEP 1 - loadUserProfile started");
+    print("STEP 1 - loadUserProfile started");
 
-  try {
-    final user = await ApiService.getCurrentUser();
+    try {
+      final user = await ApiService.getCurrentUser();
 
-    print("STEP 2 - API Success");
-    print("USER DATA: $user");
+      print("STEP 2 - API Success");
+      print("USER DATA: $user");
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    setState(() {
-      userName = user['name'] ?? 'User';
-     
-      profilePhotoUrl = user['profile_picture_url'];
+      setState(() {
+        userName = user['name'] ?? 'User';
+        profilePhotoUrl = user['profile_picture_url'];
 
-      print("STEP 3 - State Updated");
-      print("PHOTO URL: $profilePhotoUrl");
-    });
-  } catch (e) {
-    print("PROFILE ERROR: $e");
-  }
-}
-
-  void _handleBottomNavigation(int index) {
-  if (index == 0) {
-    return;
+        print("STEP 3 - State Updated");
+        print("PHOTO URL: $profilePhotoUrl");
+      });
+    } catch (e) {
+      print("PROFILE ERROR: $e");
+    }
   }
 
-  if (index == 1) {
+  void openScanScreen() {
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -79,7 +72,25 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
     );
   }
 
-  if (index == 3) {
+  void openHistoryScreen() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const HistoryScreen(),
+      ),
+    );
+  }
+
+  void openTreatmentScreen() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const TreatmentScreen(),
+      ),
+    );
+  }
+
+  void openProfileScreen() {
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -87,7 +98,27 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
       ),
     );
   }
-}
+
+  void _handleBottomNavigation(int index) {
+    if (index == 0) {
+      return;
+    }
+
+    if (index == 1) {
+      openScanScreen();
+      return;
+    }
+
+    if (index == 2) {
+      openHistoryScreen();
+      return;
+    }
+
+    if (index == 3) {
+      openProfileScreen();
+      return;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -127,8 +158,7 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
             children: [
               /// Header
               Row(
-                mainAxisAlignment:
-                    MainAxisAlignment.spaceBetween,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text(
                     "PlantGuard",
@@ -139,15 +169,7 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
                     ),
                   ),
                   GestureDetector(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) =>
-                              const ProfileScreen(),
-                        ),
-                      );
-                    },
+                    onTap: openProfileScreen,
                     child: CircleAvatar(
                       radius: 18,
                       backgroundColor: AppColors.green,
@@ -211,6 +233,7 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
                 icon: Icons.history,
                 title: "History",
                 iconColor: AppColors.green,
+                onTap: openHistoryScreen,
               ),
 
               const SizedBox(height: 12),
@@ -219,6 +242,13 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
                 icon: Icons.menu_book_outlined,
                 title: "Guide",
                 iconColor: Colors.blue,
+                onTap: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Guide screen will be added later.'),
+                    ),
+                  );
+                },
               ),
 
               const SizedBox(height: 12),
@@ -227,6 +257,13 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
                 icon: Icons.info_outline,
                 title: "About Us",
                 iconColor: Colors.white,
+                onTap: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('About Us screen will be added later.'),
+                    ),
+                  );
+                },
               ),
 
               const SizedBox(height: 12),
@@ -235,6 +272,7 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
                 icon: Icons.medical_services_outlined,
                 title: "Treatment",
                 iconColor: Colors.amber,
+                onTap: openTreatmentScreen,
               ),
 
               const Spacer(),
@@ -243,15 +281,7 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
                 width: double.infinity,
                 height: 58,
                 child: ElevatedButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) =>
-                            const ScanScreen(),
-                      ),
-                    );
-                  },
+                  onPressed: openScanScreen,
                   icon: const Icon(
                     Icons.qr_code_scanner,
                     color: Colors.black,
@@ -267,8 +297,7 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.green,
                     shape: RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(14),
                     ),
                   ),
                 ),
@@ -286,6 +315,7 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
     required IconData icon,
     required String title,
     required Color iconColor,
+    required VoidCallback onTap,
   }) {
     return Container(
       height: 65,
@@ -311,7 +341,7 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
           color: AppColors.labelColor,
           size: 16,
         ),
-        onTap: () {},
+        onTap: onTap,
       ),
     );
   }

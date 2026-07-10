@@ -1,7 +1,10 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+
 import 'app_colors.dart';
+import 'api_service.dart';
+import 'diagnosis_result_screen.dart';
 
 class ScanScreen extends StatefulWidget {
   const ScanScreen({super.key});
@@ -13,11 +16,14 @@ class ScanScreen extends StatefulWidget {
 class _ScanScreenState extends State<ScanScreen> {
   File? selectedImage;
   final ImagePicker picker = ImagePicker();
+  bool isLoading = false;
 
   Future<void> pickImage(ImageSource source) async {
     final XFile? image = await picker.pickImage(
       source: source,
-      imageQuality: 80,
+      imageQuality: 70,
+      maxWidth: 1280,
+      maxHeight: 1280,
     );
 
     if (image == null) return;
@@ -25,6 +31,58 @@ class _ScanScreenState extends State<ScanScreen> {
     setState(() {
       selectedImage = File(image.path);
     });
+  }
+
+  Future<void> diagnosePlant() async {
+    if (selectedImage == null) {
+      showError('Please select or capture a plant image first.');
+      return;
+    }
+
+    setState(() {
+      isLoading = true;
+    });
+
+    try {
+      final result = await ApiService.diagnosePlantImage(
+        imagePath: selectedImage!.path,
+        cropType: 'tomato',
+      );
+
+      if (!mounted) return;
+
+      print('DIAGNOSIS SUCCESS RESULT: $result');
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => DiagnosisResultScreen(
+            result: result,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      showError(
+        e.toString().replaceFirst('Exception: ', ''),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
+    }
+  }
+
+  void showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+      ),
+    );
   }
 
   void showImageOptions() {
@@ -41,8 +99,12 @@ class _ScanScreenState extends State<ScanScreen> {
                   color: AppColors.green,
                 ),
                 title: const Text(
-                  "Camera",
+                  'Take Photo',
                   style: TextStyle(color: Colors.white),
+                ),
+                subtitle: const Text(
+                  'Open camera',
+                  style: TextStyle(color: AppColors.labelColor),
                 ),
                 onTap: () {
                   Navigator.pop(context);
@@ -55,8 +117,12 @@ class _ScanScreenState extends State<ScanScreen> {
                   color: AppColors.green,
                 ),
                 title: const Text(
-                  "Gallery",
+                  'Choose from Gallery',
                   style: TextStyle(color: Colors.white),
+                ),
+                subtitle: const Text(
+                  'Pick existing photo',
+                  style: TextStyle(color: AppColors.labelColor),
                 ),
                 onTap: () {
                   Navigator.pop(context);
@@ -70,148 +136,227 @@ class _ScanScreenState extends State<ScanScreen> {
     );
   }
 
-  void diagnosePlant() {
-    if (selectedImage == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Please select or capture a plant image first"),
-        ),
-      );
-      return;
-    }
-
-    // Next step: send selectedImage!.path to backend
-    print("Selected image path: ${selectedImage!.path}");
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.bgDark,
-     appBar: AppBar(
-  backgroundColor: AppColors.bgDark,
-  elevation: 0,
-
-  leading: IconButton(
-    icon: const Icon(
-      Icons.arrow_back_ios_new,
-      color: Colors.white,
-    ),
-    onPressed: () {
-      Navigator.pop(context);
-    },
-  ),
-
-  title: const Text(
-    "Scan Plant",
-    style: TextStyle(
-      color: AppColors.green,
-      fontWeight: FontWeight.bold,
-    ),
-  ),
-),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            GestureDetector(
-              onTap: showImageOptions,
-              child: Container(
+      appBar: AppBar(
+        backgroundColor: AppColors.bgDark,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(
+            Icons.arrow_back_ios_new,
+            color: Colors.white,
+          ),
+          onPressed: isLoading
+              ? null
+              : () {
+                  Navigator.pop(context);
+                },
+        ),
+        title: const Text(
+          'Scan Plant',
+          style: TextStyle(
+            color: AppColors.green,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              Container(
                 width: double.infinity,
-                height: 300,
+                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: AppColors.cardBg,
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: AppColors.borderColor),
                 ),
-                child: selectedImage == null
-                    ? const Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.camera_alt_outlined,
-                            color: AppColors.green,
-                            size: 60,
-                          ),
-                          SizedBox(height: 12),
-                          Text(
-                            "Tap to select plant image",
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          SizedBox(height: 6),
-                          Text(
-                            "Camera or Gallery",
-                            style: TextStyle(
-                              color: AppColors.labelColor,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ],
-                      )
-                    : ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
-                        child: Image.file(
-                          selectedImage!,
-                          width: double.infinity,
-                          height: 300,
-                          fit: BoxFit.cover,
-                        ),
+                child: Column(
+                  children: [
+                    const Icon(
+                      Icons.eco,
+                      color: AppColors.green,
+                      size: 46,
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      'Select Leaf Photo',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
                       ),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Take or choose a clear photo of the plant leaf.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: AppColors.labelColor,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: isLoading
+                                ? null
+                                : () => pickImage(ImageSource.camera),
+                            icon: const Icon(
+                              Icons.camera_alt,
+                              color: Colors.black,
+                            ),
+                            label: const Text(
+                              'Camera',
+                              style: TextStyle(
+                                color: Colors.black,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.green,
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 14,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: isLoading
+                                ? null
+                                : () => pickImage(ImageSource.gallery),
+                            icon: const Icon(
+                              Icons.photo_library,
+                              color: Colors.white,
+                            ),
+                            label: const Text(
+                              'Gallery',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(
+                                color: AppColors.green,
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 14,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
 
-            const SizedBox(height: 24),
+              const SizedBox(height: 18),
 
-            SizedBox(
-              width: double.infinity,
-              height: 56,
-              child: ElevatedButton.icon(
-                onPressed: showImageOptions,
-                icon: const Icon(Icons.add_a_photo, color: Colors.black),
-                label: const Text(
-                  "CHOOSE IMAGE",
-                  style: TextStyle(
-                    color: Colors.black,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.green,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
+              Expanded(
+                child: GestureDetector(
+                  onTap: isLoading ? null : showImageOptions,
+                  child: Container(
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: AppColors.cardBg,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: AppColors.borderColor),
+                    ),
+                    child: selectedImage == null
+                        ? const Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.image_outlined,
+                                color: AppColors.labelColor,
+                                size: 64,
+                              ),
+                              SizedBox(height: 12),
+                              Text(
+                                'No photo selected',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              SizedBox(height: 6),
+                              Text(
+                                'Tap here to choose photo',
+                                style: TextStyle(
+                                  color: AppColors.labelColor,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          )
+                        : ClipRRect(
+                            borderRadius: BorderRadius.circular(16),
+                            child: Image.file(
+                              selectedImage!,
+                              width: double.infinity,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
                   ),
                 ),
               ),
-            ),
 
-            const SizedBox(height: 12),
+              const SizedBox(height: 18),
 
-            SizedBox(
-              width: double.infinity,
-              height: 56,
-              child: ElevatedButton.icon(
-                onPressed: diagnosePlant,
-                icon: const Icon(Icons.eco, color: Colors.black),
-                label: const Text(
-                  "DIAGNOSE PLANT",
-                  style: TextStyle(
-                    color: Colors.black,
-                    fontWeight: FontWeight.bold,
+              if (selectedImage != null)
+                SizedBox(
+                  width: double.infinity,
+                  height: 56,
+                  child: ElevatedButton.icon(
+                    onPressed: isLoading ? null : diagnosePlant,
+                    icon: isLoading
+                        ? const SizedBox(
+                            width: 21,
+                            height: 21,
+                            child: CircularProgressIndicator(
+                              color: Colors.black,
+                              strokeWidth: 2.5,
+                            ),
+                          )
+                        : const Icon(
+                            Icons.eco,
+                            color: Colors.black,
+                          ),
+                    label: Text(
+                      isLoading ? 'DIAGNOSING...' : 'DIAGNOSE THIS LEAF',
+                      style: const TextStyle(
+                        color: Colors.black,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.green,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
                   ),
                 ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.green,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

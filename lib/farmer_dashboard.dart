@@ -8,6 +8,7 @@ import 'scan_screen.dart';
 import 'history_screen.dart';
 import 'treatment_screen.dart';
 import 'guide_screen.dart';
+import 'analytics_screen.dart';
 import 'user_cache.dart';
 
 class FarmerDashboardScreen extends StatefulWidget {
@@ -96,6 +97,15 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
       context,
       MaterialPageRoute(
         builder: (context) => const GuideScreen(),
+      ),
+    );
+  }
+
+  void openAnalyticsScreen() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const AnalyticsScreen(),
       ),
     );
   }
@@ -238,6 +248,15 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
               ),
 
               const SizedBox(height: 15),
+
+              _buildCard(
+                icon: Icons.bar_chart,
+                title: "Analytics",
+                iconColor: Colors.purpleAccent,
+                onTap: openAnalyticsScreen,
+              ),
+
+              const SizedBox(height: 12),
 
               _buildCard(
                 icon: Icons.history,

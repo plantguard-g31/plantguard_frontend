@@ -1,17 +1,19 @@
 import 'dart:convert';
-import 'package:http/http.dart' as http;
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-import 'user_cache.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:http/http.dart' as http;
+
 import 'models/history_item_model.dart';
 import 'treatment_library_item_model.dart';
+import 'user_cache.dart';
+import 'package:http_parser/http_parser.dart';
 
 class ApiService {
   static const String baseUrl = 'http://192.168.1.77:8000/api/v1';
 
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
 
-  // ------- REGISTER -------
+  // ---------------- REGISTER ----------------
   static Future<Map<String, dynamic>> register({
     required String name,
     required String email,
@@ -20,7 +22,9 @@ class ApiService {
   }) async {
     final res = await http.post(
       Uri.parse('$baseUrl/auth/register'),
-      headers: {'Content-Type': 'application/json'},
+      headers: {
+        'Content-Type': 'application/json',
+      },
       body: jsonEncode({
         'name': name,
         'email': email,
@@ -36,14 +40,16 @@ class ApiService {
     throw Exception(_readBackendError(res.body));
   }
 
-  // ------- LOGIN -------
+  // ---------------- LOGIN ----------------
   static Future<void> login({
     required String email,
     required String password,
   }) async {
     final res = await http.post(
       Uri.parse('$baseUrl/auth/login'),
-      headers: {'Content-Type': 'application/json'},
+      headers: {
+        'Content-Type': 'application/json',
+      },
       body: jsonEncode({
         'email': email,
         'password': password,
@@ -58,45 +64,203 @@ class ApiService {
         value: data['access_token'],
       );
 
-      if (data['refresh_token'] != null) {
-        await _storage.write(
-          key: 'refresh_token',
-          value: data['refresh_token'],
-        );
-      }
+      await _storage.write(
+        key: 'refresh_token',
+        value: data['refresh_token'],
+      );
 
-      print('JWT token saved successfully');
+      print('LOGIN SUCCESS - ACCESS AND REFRESH TOKEN SAVED');
       return;
     }
 
     throw Exception(_readBackendError(res.body));
   }
 
-  // ------- GET ACCESS TOKEN -------
+  // ---------------- TOKEN HELPERS ----------------
   static Future<String?> getToken() async {
     return await _storage.read(key: 'access_token');
   }
 
-  // ------- GET REFRESH TOKEN -------
   static Future<String?> getRefreshToken() async {
     return await _storage.read(key: 'refresh_token');
   }
 
-  // ------- GET CURRENT USER PROFILE -------
-  static Future<Map<String, dynamic>> getCurrentUser() async {
+  static Future<void> _saveAccessToken(String token) async {
+    await _storage.write(
+      key: 'access_token',
+      value: token,
+    );
+  }
+
+  static Future<void> _saveRefreshToken(String token) async {
+    await _storage.write(
+      key: 'refresh_token',
+      value: token,
+    );
+  }
+
+  static Future<void> clearTokens() async {
+    await _storage.delete(key: 'access_token');
+    await _storage.delete(key: 'refresh_token');
+    await UserCache.clear();
+  }
+
+  // ---------------- REFRESH TOKEN ----------------
+  static Future<bool> refreshAccessToken() async {
+    final savedRefreshToken = await getRefreshToken();
+
+    if (savedRefreshToken == null || savedRefreshToken.isEmpty) {
+      return false;
+    }
+
+    try {
+      final res = await http.post(
+        Uri.parse('$baseUrl/auth/refresh'),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'refresh_token': savedRefreshToken,
+        }),
+      );
+
+      print('REFRESH STATUS: ${res.statusCode}');
+      print('REFRESH RESPONSE: ${res.body}');
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+
+        if (data['access_token'] != null) {
+          await _saveAccessToken(data['access_token']);
+        }
+
+        // Your backend currently returns new access_token.
+        // If backend later returns new refresh_token too, this will save it.
+        if (data['refresh_token'] != null) {
+          await _saveRefreshToken(data['refresh_token']);
+        }
+
+        return true;
+      }
+
+      return false;
+    } catch (e) {
+      print('REFRESH TOKEN ERROR: $e');
+      return false;
+    }
+  }
+
+  // ---------------- AUTO RETRY NORMAL API CALLS ----------------
+  static Future<http.Response> _sendWithAutoRefresh(
+    Future<http.Response> Function(String token) requestFunction,
+  ) async {
     final token = await getToken();
 
     if (token == null || token.isEmpty) {
       throw Exception('Session expired. Please login again.');
     }
 
-    final res = await http.get(
-      Uri.parse('$baseUrl/user/me'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
-    );
+    http.Response res = await requestFunction(token);
+
+    if (res.statusCode != 401) {
+      return res;
+    }
+
+    print('ACCESS TOKEN EXPIRED - TRYING REFRESH TOKEN');
+
+    final refreshed = await refreshAccessToken();
+
+    if (!refreshed) {
+      await clearTokens();
+      throw Exception('Session expired. Please login again.');
+    }
+
+    final newToken = await getToken();
+
+    if (newToken == null || newToken.isEmpty) {
+      await clearTokens();
+      throw Exception('Session expired. Please login again.');
+    }
+
+    print('RETRYING ORIGINAL REQUEST WITH NEW ACCESS TOKEN');
+
+    res = await requestFunction(newToken);
+
+    if (res.statusCode == 401) {
+      await clearTokens();
+      throw Exception('Session expired. Please login again.');
+    }
+
+    return res;
+  }
+
+  // ---------------- AUTO RETRY MULTIPART API CALLS ----------------
+  static Future<http.StreamedResponse> _sendMultipartWithAutoRefresh(
+    Future<http.MultipartRequest> Function(String token) requestBuilder,
+  ) async {
+    final token = await getToken();
+
+    if (token == null || token.isEmpty) {
+      throw Exception('Session expired. Please login again.');
+    }
+
+    http.MultipartRequest request = await requestBuilder(token);
+    http.StreamedResponse response = await request.send();
+
+    if (response.statusCode != 401) {
+      return response;
+    }
+
+    print('MULTIPART ACCESS TOKEN EXPIRED - TRYING REFRESH TOKEN');
+
+    final refreshed = await refreshAccessToken();
+
+    if (!refreshed) {
+      await clearTokens();
+      throw Exception('Session expired. Please login again.');
+    }
+
+    final newToken = await getToken();
+
+    if (newToken == null || newToken.isEmpty) {
+      await clearTokens();
+      throw Exception('Session expired. Please login again.');
+    }
+
+    print('RETRYING MULTIPART REQUEST WITH NEW ACCESS TOKEN');
+
+    request = await requestBuilder(newToken);
+    response = await request.send();
+
+    if (response.statusCode == 401) {
+      await clearTokens();
+      throw Exception('Session expired. Please login again.');
+    }
+
+    return response;
+  }
+
+  // ---------------- AUTH HEADERS ----------------
+  static Future<Map<String, String>> authHeaders() async {
+    final token = await getToken();
+
+    return {
+      'Content-Type': 'application/json',
+      if (token != null) 'Authorization': 'Bearer $token',
+    };
+  }
+
+  // ---------------- GET CURRENT USER ----------------
+  static Future<Map<String, dynamic>> getCurrentUser() async {
+    final res = await _sendWithAutoRefresh((token) {
+      return http.get(
+        Uri.parse('$baseUrl/user/me'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+    });
 
     print('PROFILE STATUS: ${res.statusCode}');
     print('PROFILE RESPONSE: ${res.body}');
@@ -115,39 +279,26 @@ class ApiService {
     throw Exception(_readBackendError(res.body));
   }
 
-  // ------- AUTH HEADERS -------
-  static Future<Map<String, String>> authHeaders() async {
-    final token = await getToken();
-
-    return {
-      'Content-Type': 'application/json',
-      if (token != null) 'Authorization': 'Bearer $token',
-    };
-  }
-
-  // ------- UPLOAD PROFILE PHOTO -------
+  // ---------------- UPLOAD PROFILE PHOTO ----------------
   static Future<String?> uploadProfilePhoto(String imagePath) async {
-    final token = await getToken();
+    final response = await _sendMultipartWithAutoRefresh((token) async {
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$baseUrl/user/profile-photo'),
+      );
 
-    if (token == null || token.isEmpty) {
-      throw Exception('Session expired. Please login again.');
-    }
+      request.headers['Authorization'] = 'Bearer $token';
 
-    final request = http.MultipartRequest(
-      'POST',
-      Uri.parse('$baseUrl/user/profile-photo'),
-    );
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'file',
+          imagePath,
+        ),
+      );
 
-    request.headers['Authorization'] = 'Bearer $token';
+      return request;
+    });
 
-    request.files.add(
-      await http.MultipartFile.fromPath(
-        'file',
-        imagePath,
-      ),
-    );
-
-    final response = await request.send();
     final responseBody = await response.stream.bytesToString();
 
     print('UPLOAD STATUS: ${response.statusCode}');
@@ -161,17 +312,11 @@ class ApiService {
     throw Exception(_readBackendError(responseBody));
   }
 
-  // ------- DIAGNOSE PLANT IMAGE -------
+  // ---------------- DIAGNOSE PLANT IMAGE ----------------
   static Future<Map<String, dynamic>> diagnosePlantImage({
     required String imagePath,
     String cropType = 'tomato',
   }) async {
-    final token = await getToken();
-
-    if (token == null || token.isEmpty) {
-      throw Exception('Session expired. Please login again.');
-    }
-
     final uri = Uri.parse('$baseUrl/diagnose/').replace(
       queryParameters: {
         'crop_type': cropType,
@@ -179,18 +324,24 @@ class ApiService {
       },
     );
 
-    final request = http.MultipartRequest('POST', uri);
+    final response = await _sendMultipartWithAutoRefresh((token) async {
+      final request = http.MultipartRequest(
+        'POST',
+        uri,
+      );
 
-    request.headers['Authorization'] = 'Bearer $token';
+      request.headers['Authorization'] = 'Bearer $token';
 
-    request.files.add(
-      await http.MultipartFile.fromPath(
-        'file',
-        imagePath,
-      ),
-    );
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'file',
+          imagePath,
+        ),
+      );
 
-    final response = await request.send();
+      return request;
+    });
+
     final responseBody = await response.stream.bytesToString();
 
     print('DIAGNOSE STATUS: ${response.statusCode}');
@@ -203,17 +354,11 @@ class ApiService {
     throw Exception(_readBackendError(responseBody));
   }
 
-  // ------- GET HISTORY LIST -------
+  // ---------------- GET HISTORY LIST ----------------
   static Future<List<HistoryItemModel>> getHistoryList({
     int limit = 10,
     int offset = 0,
   }) async {
-    final token = await getToken();
-
-    if (token == null || token.isEmpty) {
-      throw Exception('Session expired. Please login again.');
-    }
-
     final uri = Uri.parse('$baseUrl/history/').replace(
       queryParameters: {
         'limit': limit.toString(),
@@ -221,13 +366,15 @@ class ApiService {
       },
     );
 
-    final res = await http.get(
-      uri,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
-    );
+    final res = await _sendWithAutoRefresh((token) {
+      return http.get(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+    });
 
     print('HISTORY STATUS: ${res.statusCode}');
     print('HISTORY RESPONSE: ${res.body}');
@@ -252,21 +399,17 @@ class ApiService {
     throw Exception(_readBackendError(res.body));
   }
 
-  // ------- GET HISTORY DETAIL -------
+  // ---------------- GET HISTORY DETAIL ----------------
   static Future<Map<String, dynamic>> getHistoryDetail(String historyId) async {
-    final token = await getToken();
-
-    if (token == null || token.isEmpty) {
-      throw Exception('Session expired. Please login again.');
-    }
-
-    final res = await http.get(
-      Uri.parse('$baseUrl/history/$historyId'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
-    );
+    final res = await _sendWithAutoRefresh((token) {
+      return http.get(
+        Uri.parse('$baseUrl/history/$historyId'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+    });
 
     print('HISTORY DETAIL STATUS: ${res.statusCode}');
     print('HISTORY DETAIL RESPONSE: ${res.body}');
@@ -278,18 +421,34 @@ class ApiService {
     throw Exception(_readBackendError(res.body));
   }
 
-  // ------- GET TREATMENT LIBRARY -------
+  // ---------------- DELETE HISTORY ITEM ----------------
+  static Future<void> deleteHistoryItem(String historyId) async {
+    final res = await _sendWithAutoRefresh((token) {
+      return http.delete(
+        Uri.parse('$baseUrl/history/$historyId'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+    });
+
+    print('DELETE HISTORY STATUS: ${res.statusCode}');
+    print('DELETE HISTORY RESPONSE: ${res.body}');
+
+    if (res.statusCode == 200 || res.statusCode == 204) {
+      return;
+    }
+
+    throw Exception(_readBackendError(res.body));
+  }
+
+  // ---------------- GET TREATMENT LIBRARY ----------------
   static Future<List<TreatmentLibraryItemModel>> getTreatmentLibrary({
     String? cropType,
     String search = '',
     String lang = 'en',
   }) async {
-    final token = await getToken();
-
-    if (token == null || token.isEmpty) {
-      throw Exception('Session expired. Please login again.');
-    }
-
     final queryParams = <String, String>{
       'lang': lang,
     };
@@ -306,13 +465,15 @@ class ApiService {
       queryParameters: queryParams,
     );
 
-    final res = await http.get(
-      uri,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
-    );
+    final res = await _sendWithAutoRefresh((token) {
+      return http.get(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+    });
 
     print('TREATMENT LIBRARY STATUS: ${res.statusCode}');
     print('TREATMENT LIBRARY RESPONSE: ${res.body}');
@@ -353,7 +514,125 @@ class ApiService {
     throw Exception(_readBackendError(res.body));
   }
 
-  // ------- READ ERROR DIRECTLY FROM BACKEND -------
+  // ---------------- GET ANALYTICS ----------------
+  static Future<Map<String, dynamic>> getAnalytics({
+    String? cropType,
+  }) async {
+    final String url = cropType == null
+        ? '$baseUrl/analytics/'
+        : '$baseUrl/analytics/crop/$cropType';
+
+    final res = await _sendWithAutoRefresh((token) {
+      return http.get(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+    });
+
+    print('ANALYTICS STATUS: ${res.statusCode}');
+    print('ANALYTICS RESPONSE: ${res.body}');
+
+    if (res.statusCode == 200) {
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    }
+
+    throw Exception(_readBackendError(res.body));
+  }
+
+  // ---------------- CHANGE PASSWORD ----------------
+  static Future<String> changePassword({
+    required String currentPassword,
+    required String newPassword,
+    required String confirmPassword,
+  }) async {
+    final res = await _sendWithAutoRefresh((token) {
+      return http.put(
+        Uri.parse('$baseUrl/user/change-password'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'current_password': currentPassword,
+          'new_password': newPassword,
+          'confirm_password': confirmPassword,
+        }),
+      );
+    });
+
+    print('CHANGE PASSWORD STATUS: ${res.statusCode}');
+    print('CHANGE PASSWORD RESPONSE: ${res.body}');
+
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      return data['message'] ??
+          'Password changed successfully. Please login again.';
+    }
+
+    throw Exception(_readBackendError(res.body));
+  }
+
+  // ---------------- LOGOUT BACKEND + LOCAL ----------------
+  static Future<void> logout() async {
+    try {
+      String? accessToken = await getToken();
+      String? refreshTokenValue = await getRefreshToken();
+
+      if (accessToken != null && accessToken.isNotEmpty) {
+        http.Response logoutResponse = await _sendLogoutRequest(
+          accessToken: accessToken,
+          refreshTokenValue: refreshTokenValue,
+        );
+
+        print('LOGOUT STATUS: ${logoutResponse.statusCode}');
+        print('LOGOUT RESPONSE: ${logoutResponse.body}');
+
+        if (logoutResponse.statusCode == 401) {
+          final refreshed = await refreshAccessToken();
+
+          if (refreshed) {
+            accessToken = await getToken();
+            refreshTokenValue = await getRefreshToken();
+
+            if (accessToken != null && accessToken.isNotEmpty) {
+              logoutResponse = await _sendLogoutRequest(
+                accessToken: accessToken,
+                refreshTokenValue: refreshTokenValue,
+              );
+
+              print('LOGOUT RETRY STATUS: ${logoutResponse.statusCode}');
+              print('LOGOUT RETRY RESPONSE: ${logoutResponse.body}');
+            }
+          }
+        }
+      }
+    } catch (e) {
+      print('BACKEND LOGOUT ERROR IGNORED: $e');
+    } finally {
+      await clearTokens();
+    }
+  }
+
+  static Future<http.Response> _sendLogoutRequest({
+    required String accessToken,
+    required String? refreshTokenValue,
+  }) async {
+    return http.post(
+      Uri.parse('$baseUrl/auth/logout'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $accessToken',
+      },
+      body: jsonEncode({
+        'refresh_token': refreshTokenValue ?? '',
+      }),
+    );
+  }
+
+  // ---------------- ERROR READER ----------------
   static String _readBackendError(String responseBody) {
     try {
       final data = jsonDecode(responseBody);
@@ -400,12 +679,5 @@ class ApiService {
     } catch (_) {
       return 'Something went wrong. Please try again.';
     }
-  }
-
-  // ------- LOGOUT LOCAL -------
-  static Future<void> logout() async {
-    await _storage.delete(key: 'access_token');
-    await _storage.delete(key: 'refresh_token');
-    await UserCache.clear();
   }
 }
